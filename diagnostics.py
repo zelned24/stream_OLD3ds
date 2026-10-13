@@ -106,6 +106,7 @@ class Probe:
         self.input_missing = 0
         self.ping_seq = 0
         self.next_ping = 0
+        self.live = None
 
     def send(self, data):
         try:
@@ -138,7 +139,10 @@ class Probe:
                 stage = struct.unpack_from('!I', packet, 4)[0]
                 if stage != self.stage:
                     continue
-                if packet[:4] == b'RBR1':
+                if packet[:4] == b'RBL1' and len(packet)==24:
+                    _, _, ms, received, complete, shown = struct.unpack('!4sIIIII',packet)
+                    self.live = (time.perf_counter(),ms,received,complete,shown)
+                elif packet[:4] == b'RBR1':
                     try:
                         value = json.loads(packet[8:])
                         if not isinstance(value, dict) or not isinstance(value.get('ms'), (float, int)):
@@ -177,6 +181,7 @@ class Probe:
         stage = self.stage
         self.rtt, self.pings, self.input_times = [], {}, []
         self.input_last = self.input_missing = 0
+        self.live = None
         self.retry(CONFIG.pack(b'RBG1', stage, MODES[config['kind']],
                                int(config['seconds']*1000), int(config.get('audio', False)), VERSION), 0)
         if config['kind'] == 'decode':
@@ -198,6 +203,7 @@ class Probe:
         packet_spacing = 0
         audio_sequence = audio_sent = 0
         self.next_ping = start
+        next_status = start+1
         while time.perf_counter() < end:
             now = time.perf_counter()
             if now >= self.next_ping:
@@ -245,6 +251,15 @@ class Probe:
                         send_errors += 1
                     next_data += packet_spacing
             self.poll(.001)
+            if now>=next_status:
+                elapsed=now-start
+                if self.live and now-self.live[0]<2:
+                    _,ms,received,complete,shown=self.live
+                    detail=f'3DS: RX {received}, frames {complete}, presentados {shown}'
+                else:
+                    detail='Sin telemetria reciente de 3DS (comprueba version v1.2)'
+                self.log(f'En curso {elapsed:.0f}/{config["seconds"]} s | TX {sent} paquetes | {detail}')
+                next_status=now+1
         actual_seconds = time.perf_counter()-start
         # Drain in-flight packets before finalising; no backlog/retransmission of video.
         drain_end = time.perf_counter()+.2
@@ -446,6 +461,10 @@ def gui(args):
     controls=ttk.Frame(pane); controls.pack(fill='x',pady=12)
     status=tk.StringVar(value='Detenido')
     ttk.Label(pane,textvariable=status,wraplength=800).pack(anchor='w')
+    activity=tk.StringVar(value='Pulsa Iniciar diagnóstico; después A en la consola.')
+    ttk.Label(pane,textvariable=activity,wraplength=800).pack(anchor='w',pady=5)
+    progress=ttk.Progressbar(pane,mode='determinate',maximum=35*args.repeats)
+    progress.pack(fill='x',pady=5)
     output=tk.Text(pane,height=18,wrap='word',state='disabled')
     output.pack(fill='both',expand=True,pady=10)
     events=queue.Queue(); stop=threading.Event(); worker=None
@@ -455,6 +474,7 @@ def gui(args):
         stop.clear(); args.repeats=int(repeats.get()); args.audio=audio.get()
         begin.configure(state='disabled'); repeat_box.configure(state='disabled'); audio_box.configure(state='disabled')
         status.set('Esperando consola / pruebas en curso')
+        progress.configure(maximum=35*args.repeats,value=0)
         def work():
             try: events.put(('done',str(run(args,stop,lambda text:events.put(('log',text))))))
             except Exception as error: events.put(('done',f'Error al guardar: {error}'))
@@ -469,9 +489,18 @@ def gui(args):
         while not events.empty():
             kind,text=events.get_nowait()
             if kind=='done':
-                status.set(f'Informe: {text}'); begin.configure(state='normal')
+                activity.set(f'Informe: {text}'); begin.configure(state='normal')
                 repeat_box.configure(state='readonly'); audio_box.configure(state='normal')
             else:
+                if text.startswith('['):
+                    current,total=text.split(']',1)[0][1:].split('/')
+                    progress.configure(maximum=int(total),value=int(current)-1)
+                    status.set(text)
+                elif text.startswith(('Esperando','Consola conectada','Error:','Cancelado.','Bateria terminada')):
+                    status.set(text)
+                    if text.startswith('Bateria terminada'): progress.configure(value=35*args.repeats)
+                elif text.startswith('En curso'):
+                    activity.set(text)
                 output.configure(state='normal'); output.insert('end',text+'\n'); output.see('end'); output.configure(state='disabled')
         if closing and (not worker or not worker.is_alive()): root.destroy(); return
         root.after(100,poll)
@@ -480,7 +509,9 @@ def gui(args):
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--gui',action='store_true')
+    interface=parser.add_mutually_exclusive_group()
+    interface.add_argument('--gui',action='store_true',help='Abrir interfaz (predeterminada)')
+    interface.add_argument('--cli',action='store_true',help='Usar solo terminal')
     parser.add_argument('--bind',default='0.0.0.0')
     parser.add_argument('--port',type=int,default=5001,choices=[5001])
     parser.add_argument('--seconds',type=int,default=6,choices=range(2,16))
@@ -489,5 +520,5 @@ if __name__ == '__main__':
     parser.add_argument('--image',type=Path,help='Imagen de juego propia para una segunda bateria representativa')
     parser.add_argument('--output',type=Path,default=ROOT/'diagnostics-results')
     options=parser.parse_args()
-    if options.gui: gui(options)
-    else: run(options,threading.Event(),lambda text:print(text,flush=True))
+    if options.cli: run(options,threading.Event(),lambda text:print(text,flush=True))
+    else: gui(options)

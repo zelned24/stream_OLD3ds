@@ -8,6 +8,8 @@ La herramienta independiente **Rogue Probe** mide UDP, JPEG, copia/presentación
 
 Los resultados se guardan por etapa en `diagnostics-results/` como JSON, CSV y resumen Markdown. No reemplaza el cliente del juego ni aplica automáticamente otro protocolo. Instalación, significado de las métricas, audio opcional y criterios de selección: [DIAGNOSTICS.md](DIAGNOSTICS.md).
 
+`python diagnostics.py` abre la ventana por defecto (`--cli` para terminal). Desde Probe **v1.2**, la PC muestra progreso y contadores en vivo; la pantalla inferior muestra etapa y tiempo. **Esperando servidor / etapa 0** significa que todavía no hay pruebas en curso. Las pruebas de red y JPEG local no cambian la imagen superior; durante streaming la referencia también es fija, pero aumenta el contador de presentaciones.
+
 ## Actualización: JPEG, modo intermedio y audio
 
 ### Prueba de nitidez y recuperación (2026-10-13)

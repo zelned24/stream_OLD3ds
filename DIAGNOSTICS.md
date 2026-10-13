@@ -6,6 +6,12 @@ No mide «todo el hardware» ni garantiza encontrar un máximo absoluto: caracte
 
 ## Instalación y uso
 
+Desde v1.2, `python diagnostics.py` abre la ventana por defecto. Para usar únicamente la terminal añade `--cli`. El nombre correcto lleva **s**: `diagnostics.py`.
+
+Para comprobar actividad, la PC muestra la etapa `[n/35]`, una barra de progreso y cada segundo el envío y los contadores recibidos de la consola. La pantalla inferior del `.3dsx` muestra **ROGUE PROBE v1.2**, el estado, el nombre de la prueba y el tiempo transcurrido. **ESPERANDO SERVIDOR** con etapa 0 significa que todavía no se inició ninguna prueba; pasados 10 segundos aparece una indicación para revisar IP, inicio del controlador y firewall UDP 5001. Las pruebas **Red UDP** y **JPEG local** mantienen la imagen superior estática por diseño. Durante **Streaming** se muestra la lámina de referencia, que también es una imagen fija: comprueba el aumento del contador Pantalla.
+
+Actualiza el `.3dsx` y `diagnostics.py` juntos para recibir telemetría en vivo. Se añadió el mensaje opcional RBL1 (24 bytes por segundo durante una etapa); los informes finales conservan su formato. La configuración de IP vuelve a enlazar la consola de texto al salir del teclado virtual y los estados se refrescan incluso antes de iniciar.
+
 1. Copia `dist/3ds/rogue_probe/rogue_probe.3dsx` a `sd:/3ds/rogue_probe/rogue_probe.3dsx`.
 2. Inicia Probe y escribe la IPv4 LAN de la PC en el teclado de la 3DS. El valor inicial es `192.168.1.44`; puedes editarlo en cada inicio. No necesita `server.txt` ni compartir ajustes con el cliente del juego.
 3. PC y consola deben estar en la misma LAN. Cierra el servidor de juego durante la prueba para evitar carga ajena. Usa las mismas condiciones de Wi-Fi con las que juegas.
@@ -23,7 +29,7 @@ No mide «todo el hardware» ni garantiza encontrar un máximo absoluto: caracte
 Alternativa por terminal, dos pasadas y audio:
 
 ```powershell
-python D:\Proyectos\rogue_lan\diagnostics.py --repeats 2 --seconds 6 --audio
+python D:\Proyectos\rogue_lan\diagnostics.py --cli --repeats 2 --seconds 6 --audio
 ```
 
 Para una segunda batería más representativa, usa una captura tuya del juego; la imagen se guarda como referencia junto al informe:
@@ -86,7 +92,7 @@ En MSYS2 de devkitPro, dentro de `client/`:
 make -B probe
 ```
 
-Produce `client/rogue_probe.3dsx`. La IP se lee exclusivamente del archivo SD compartido. No se cambia la compilación ni el binario del juego.
+Produce `client/rogue_probe.3dsx`. La IP se introduce con el teclado de la consola al iniciar; no requiere un archivo en la SD. No se cambia la compilación ni el binario del juego.
 
 Comprobaciones internas, sin benchmarks, sockets ni emulación:
 

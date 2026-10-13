@@ -31,9 +31,15 @@ static bool selectServerIp(char* ip,size_t capacity) {
         swkbdInit(&keyboard,SWKBD_TYPE_NORMAL,2,15);
         swkbdSetHintText(&keyboard,"IP de la PC, ej. 192.168.1.44");
         swkbdSetValidation(&keyboard,SWKBD_NOTEMPTY,0,0);
+        swkbdSetInitialText(&keyboard,ip);
+        swkbdSetButton(&keyboard,SWKBD_BUTTON_LEFT,"Cancelar",false);
+        swkbdSetButton(&keyboard,SWKBD_BUTTON_RIGHT,"Aceptar",true);
         char candidate[64];
         snprintf(candidate,sizeof(candidate),"%s",ip);
-        if(swkbdInputText(&keyboard,candidate,sizeof(candidate))!=SWKBD_BUTTON_CONFIRM)
+        SwkbdButton button=swkbdInputText(&keyboard,candidate,sizeof(candidate));
+        // The applet may restore different framebuffer addresses/formats.
+        consoleInit(GFX_BOTTOM,nullptr);
+        if(button!=SWKBD_BUTTON_CONFIRM)
             return false;
         in_addr parsed{};
         if(inet_pton(AF_INET,candidate,&parsed)==1) {
@@ -138,6 +144,7 @@ static char report[1400];
 
 int main() {
     gfxInitDefault(); gfxSet3D(false); consoleInit(GFX_BOTTOM,nullptr);
+    setvbuf(stdout,nullptr,_IONBF,0);
     char ip[64]=PROBE_DEFAULT_IP;
     if(!selectServerIp(ip,sizeof(ip))) { gfxExit(); return 0; }
     auto* memory=static_cast<u32*>(memalign(0x1000,0x100000));
@@ -166,6 +173,7 @@ int main() {
     u32 frame=0,total=0,received=0; bool haveFrame=false;
     u64 started=0,firstPacket=0,lastPacket=0,frameStart=0,lastShown=0;
     u64 heartbeat=0,lastReport=0,lastDraw=0,previousLoop=0,lastInput=0;
+    u64 waitingSince=osGetTime();
     size_t reportLength=0;
     auto finish=[&]() {
         if(!active) return;
@@ -198,12 +206,11 @@ int main() {
         reportLength=length>0&&size_t(length)<sizeof(report)-8?size_t(length)+8:0;
         finished=true; lastReport=0;
     };
-    printf("ROGUE PROBE v1\n\nPC: %s :5001\n%s\nDSP: %s\n\nA: conectar e iniciar pruebas\nB: cancelar bateria\nSTART: salir\n\nEjecuta diagnostics.py en la PC.\n",ip,
-        fd>=0?"Red preparada":"ERROR: revisar server.txt / Wi-Fi",audio.available?"listo":"no disponible");
+    consoleClear();
     while(aptMainLoop()) {
         hidScanInput(); u32 down=hidKeysDown(); u64 now=osGetTime();
         if(down&KEY_START) { aborted=true; finish(); if(reportLength) send(fd,report,reportLength,0); sendMessage("RBQ1",stage,0); break; }
-        if(down&KEY_A&&!enabled&&fd>=0) { enabled=true; stage=0; finished=false; reportLength=0; heartbeat=0; }
+        if(down&KEY_A&&!enabled&&fd>=0) { enabled=true; stage=0; finished=false; aborted=false; reportLength=0; heartbeat=0; waitingSince=now; lastDraw=0; }
         if(down&KEY_B) {
             aborted=true; finish(); sendMessage("RBQ1",stage,0); enabled=false;
             printf("\x1b[1;1HDiagnostico cancelado.               \nEtapas previas guardadas en la PC.   \nA: nueva sesion | START: salir       \n");
@@ -319,11 +326,27 @@ int main() {
         if(active&&micros(svcGetSystemTick()-started)/1000>duration+1500) { aborted=true; finish(); }
         audio.tick(!active);
         if(reportLength&&now-lastReport>=250) { send(fd,report,reportLength,0); lastReport=now; }
-        if(enabled&&now-lastDraw>=1000) {
-            printf("\x1b[1;1HROGUE PROBE v1   %s\nPC %s:5001\nEtapa %lu   modo %lu\n%s                      \nRX %lu paquetes             \nFrames %lu / mostrados %lu    \nB cancela | START sale\n",
-                isNew?"New3DS":"Old3DS",ip,(unsigned long)stage,(unsigned long)kind,
-                active?"Midiendo en consola":finished?"Etapa terminada":"Esperando servidor",
-                (unsigned long)unique,(unsigned long)complete,(unsigned long)shown);
+        if(now-lastDraw>=1000) {
+            const char* names[]={"Red UDP","JPEG local","Streaming","Copia y pantalla"};
+            const char* state=fd<0?"ERROR DE RED / IP":active?"PRUEBA EN CURSO":
+                enabled?(stage?"Preparando siguiente prueba":"ESPERANDO SERVIDOR"):
+                aborted?"CANCELADO":finished?"TERMINADO":"PULSA A PARA CONECTAR";
+            u32 elapsed=active?u32(micros(svcGetSystemTick()-started)/1000):0;
+            consoleClear();
+            printf("ROGUE PROBE v1.2   %s\nPC %s:5001\n\n%s\nEtapa %lu: %s\nTiempo: %lu / %lu ms\nRX: %lu paquetes\nFrames: %lu  Pantalla: %lu\nDSP: %s\n\n",
+                isNew?"New3DS":"Old3DS",ip,state,(unsigned long)stage,stage?names[kind]:"Sin iniciar",
+                (unsigned long)elapsed,(unsigned long)duration,(unsigned long)unique,
+                (unsigned long)complete,(unsigned long)shown,audio.available?"listo":"no disponible");
+            if(enabled&&!stage) {
+                printf("Esperando: %lu s\n",(unsigned long)((now-waitingSince)/1000));
+                if(now-waitingSince>10000) printf("Sin respuesta. Revisa:\nIP de PC, Iniciar en Python,\nfirewall UDP 5001 y red Wi-Fi.\n");
+            } else if(active&&(kind==0||kind==1)) printf("Esta prueba no cambia la imagen.\nEl tiempo indica actividad.\n");
+            printf("\nA: conectar | B: cancelar\nSTART: salir\n");
+            if(active) {
+                u8 live[24]; memcpy(live,"RBL1",4); put32(live+4,stage); put32(live+8,elapsed);
+                put32(live+12,unique); put32(live+16,complete); put32(live+20,shown);
+                send(fd,live,sizeof(live),0);
+            }
             lastDraw=now;
             gfxFlushBuffers();
         }
