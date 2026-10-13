@@ -4,7 +4,7 @@ La PC ejecuta PokéRogue en Edge; la consola recibe video RGB332 o JPEG y envía
 
 ## Medir la capacidad de tu consola
 
-La herramienta independiente **Rogue Probe** mide UDP, JPEG, copia/presentación, controles y coexistencia con audio en la 3DS física. Copia `dist/3ds/rogue_probe/rogue_probe.3dsx` a la SD y conserva `sd:/3ds/rogue_stream/server.txt`. Abre `start-diagnostics.ps1`, pulsa **Iniciar diagnóstico** y abre Probe en la consola con **A**. Usa UDP 5001; permite ese puerto para Python en la red privada. Una pasada tarda aproximadamente 4–5 minutos. B cancela y START sale.
+La herramienta independiente **Rogue Probe** mide UDP, JPEG, copia/presentación, controles y coexistencia con audio en la 3DS física. Copia `dist/3ds/rogue_probe/rogue_probe.3dsx` a la SD. Abre `start-diagnostics.ps1`, pulsa **Iniciar diagnóstico**; en la consola introduce la IP de la PC (valor inicial `192.168.1.44`), toca Aceptar y pulsa **A**. Usa UDP 5001; permite ese puerto para Python en la red privada. Una pasada tarda aproximadamente 4–5 minutos. B cancela y START sale.
 
 Los resultados se guardan por etapa en `diagnostics-results/` como JSON, CSV y resumen Markdown. No reemplaza el cliente del juego ni aplica automáticamente otro protocolo. Instalación, significado de las métricas, audio opcional y criterios de selección: [DIAGNOSTICS.md](DIAGNOSTICS.md).
 

@@ -7,7 +7,7 @@ No mide «todo el hardware» ni garantiza encontrar un máximo absoluto: caracte
 ## Instalación y uso
 
 1. Copia `dist/3ds/rogue_probe/rogue_probe.3dsx` a `sd:/3ds/rogue_probe/rogue_probe.3dsx`.
-2. Conserva `sd:/3ds/rogue_stream/server.txt` con la IPv4 LAN de la PC. Probe comparte ese archivo con el cliente habitual, aunque el binario esté en otra carpeta.
+2. Inicia Probe y escribe la IPv4 LAN de la PC en el teclado de la 3DS. El valor inicial es `192.168.1.44`; puedes editarlo en cada inicio. No necesita `server.txt` ni compartir ajustes con el cliente del juego.
 3. PC y consola deben estar en la misma LAN. Cierra el servidor de juego durante la prueba para evitar carga ajena. Usa las mismas condiciones de Wi-Fi con las que juegas.
 4. Abre `start-diagnostics.ps1` o ejecuta:
 
@@ -16,7 +16,7 @@ No mide «todo el hardware» ni garantiza encontrar un máximo absoluto: caracte
    ```
 
 5. Permite UDP entrante **5001** para Python en el firewall de Windows, solo en la red privada. No necesitas abrir puertos en el router. El juego sigue usando 5000.
-6. Pulsa **Iniciar diagnóstico** en la PC. En Homebrew Launcher abre `rogue_probe.3dsx` y pulsa **A**. La consola muestra etapas y recepción; el controlador muestra progreso.
+6. Pulsa **Iniciar diagnóstico** en la PC. En Homebrew Launcher abre `rogue_probe.3dsx`, introduce la IP del PC, toca **Aceptar** y pulsa **A** para iniciar. La consola muestra etapas y recepción; el controlador muestra progreso.
 7. Deja terminar una pasada, aproximadamente 4–5 minutos con 6 segundos por etapa. Haz después dos o tres pasadas para comprobar estabilidad. En consola **B** cancela y **START** sale. En PC **Detener y guardar** conserva las etapas completas. Tras una cancelación, reinicia la batería en PC y pulsa A en consola.
 8. Para probar coexistencia con audio, activa la casilla antes de iniciar. Emite un tono suave de 440 Hz durante las etapas de streaming. Usa el DSP firmware que ya funciona con el cliente de juego y un volumen cómodo. No captura micrófono ni salida Windows. Comprueba de oído cortes; los contadores no certifican el sonido de los altavoces.
 

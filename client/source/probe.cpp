@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <malloc.h>
+#include <3ds/applets/swkbd.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -16,6 +17,35 @@ static u32 read32(const u8* p) { return u32(p[0])<<24|u32(p[1])<<16|u32(p[2])<<8
 static unsigned read16(const u8* p) { return unsigned(p[0])<<8|p[1]; }
 static void put32(u8* p,u32 v) { for(int i=3;i>=0;--i) { p[i]=v; v>>=8; } }
 static double micros(u64 ticks) { return ticks/CPU_TICKS_PER_USEC; }
+
+#ifndef PROBE_DEFAULT_IP
+#define PROBE_DEFAULT_IP "192.168.1.44"
+#endif
+
+static bool selectServerIp(char* ip,size_t capacity) {
+    for(;;) {
+        consoleClear();
+        printf("ROGUE PROBE\n\nIntroduce la IPv4 de la PC.\nActual: %s\nToca Aceptar para conectar;\nCancelar para salir.\n",ip);
+        gfxFlushBuffers();
+        SwkbdState keyboard;
+        swkbdInit(&keyboard,SWKBD_TYPE_NORMAL,2,15);
+        swkbdSetHintText(&keyboard,"IP de la PC, ej. 192.168.1.44");
+        swkbdSetValidation(&keyboard,SWKBD_NOTEMPTY,0,0);
+        char candidate[64];
+        snprintf(candidate,sizeof(candidate),"%s",ip);
+        if(swkbdInputText(&keyboard,candidate,sizeof(candidate))!=SWKBD_BUTTON_CONFIRM)
+            return false;
+        in_addr parsed{};
+        if(inet_pton(AF_INET,candidate,&parsed)==1) {
+            snprintf(ip,capacity,"%s",candidate);
+            return true;
+        }
+        consoleClear();
+        printf("IPv4 invalida: %s\n\nEjemplo: 192.168.1.44\n",candidate);
+        gfxFlushBuffers();
+        svcSleepThread(1500000000ULL);
+    }
+}
 
 struct Timing {
     u32 values[2048]{}, count=0, maximum=0;
@@ -108,11 +138,8 @@ static char report[1400];
 
 int main() {
     gfxInitDefault(); gfxSet3D(false); consoleInit(GFX_BOTTOM,nullptr);
-    char ip[64]="";
-    if(FILE* f=fopen("sdmc:/3ds/rogue_stream/server.txt","r")) {
-        if(fgets(ip,sizeof(ip),f)) ip[strcspn(ip,"\r\n \t")]=0;
-        fclose(f);
-    }
+    char ip[64]=PROBE_DEFAULT_IP;
+    if(!selectServerIp(ip,sizeof(ip))) { gfxExit(); return 0; }
     auto* memory=static_cast<u32*>(memalign(0x1000,0x100000));
     bool soc=memory&&R_SUCCEEDED(socInit(memory,0x100000));
     sockaddr_in remote{}; remote.sin_family=AF_INET; remote.sin_port=htons(5001);
