@@ -24,7 +24,7 @@ struct Panel {
     u8 mapping[7]={5,6,9,10,11,12,7};
     u32 revision=1, acknowledged=0;
     float fps=0, kbps=0;
-    u32 dropped=0, ping=0;
+    u32 dropped=0, ping=0, recovered=0;
     bool online=false;
     static constexpr panelgfx::Rect accept{12,185,142,36}, back{166,185,142,36};
     int count() const { return tab==0?3:tab==1?8:2; }
@@ -186,7 +186,7 @@ struct Panel {
                 }
             } else {
                 c.text(16,96,"Servidor",muted); c.text(83,96,ip,white);
-                snprintf(text,sizeof(text),"%.0f KB/s    %lu descartados",kbps,(unsigned long)dropped); c.text(16,111,text,muted);
+                snprintf(text,sizeof(text),"%.0f KB/s  Drop:%lu FEC:%lu",kbps,(unsigned long)dropped,(unsigned long)recovered); c.text(16,111,text,muted);
                 c.text(16,122,audioAvailable?"Audio DSP listo":"Audio: falta DSP firmware",muted);
                 for(int i=0;i<2;++i) {
                     Rect r=itemRect(i); c.frame(r,menu&&selected==i);

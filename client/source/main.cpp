@@ -19,6 +19,7 @@ static AudioPlayer audio;
 #endif
 static char SERVER_IP[INET_ADDRSTRLEN] = STREAM_SERVER_IP;
 static unsigned char assembly[96000], latest[96000], seen[80];
+static unsigned char repair[1200];
 static unsigned read16(const unsigned char* p) { return (p[0]<<8)|p[1]; }
 static u32 read32(const unsigned char* p) { return (u32(p[0])<<24)|(u32(p[1])<<16)|(u32(p[2])<<8)|p[3]; }
 static void put32(unsigned char* p, u32 n) { for(int i=3;i>=0;--i) { p[i]=n; n>>=8; } }
@@ -61,6 +62,7 @@ int main() {
     u32 inputSeq=0, frameSeq=0;
     unsigned received=0;
     bool frameJpeg=false;
+    bool haveRepair=false;
     unsigned frameSize=96000, latestSize=96000;
     bool haveSeq=false, haveImage=false;
     u16 previous=0xffff;
@@ -130,7 +132,8 @@ int main() {
                 continue;
             }
             if(n<17 || n>1216) continue;
-            bool isJpeg=memcmp(packet,"PRJ1",4)==0;
+            bool isRepair=memcmp(packet,"PRX1",4)==0;
+            bool isJpeg=isRepair || memcmp(packet,"PRJ1",4)==0;
             if(!isJpeg && memcmp(packet,"PRF2",4)!=0) continue;
             u32 seq=read32(packet+4);
             unsigned index=read16(packet+8);
@@ -138,7 +141,9 @@ int main() {
             if(!size || size>96000 || count!=(size+1199)/1200 || index>=count) continue;
             if(!isJpeg && size!=24000) continue;
             unsigned payload=(index+1==count)?size-index*1200:1200;
-            if(unsigned(n)!=16+payload) continue;
+            if(isRepair) {
+                if(index!=0 || n!=1216) continue;
+            } else if(unsigned(n)!=16+payload) continue;
             ++packets;
             videoBytes+=n;
             if(haveSeq && seq!=frameSeq && (seq-frameSeq)>=0x80000000u) continue;
@@ -147,12 +152,33 @@ int main() {
                 frameSeq=seq; haveSeq=true; received=0; frameStarted=osGetTime();
                 frameSize=size; frameJpeg=isJpeg;
                 memset(seen,0,sizeof(seen));
+                haveRepair=false;
             }
             if(size!=frameSize || frameJpeg!=isJpeg) continue;
-            if(osGetTime()-frameStarted>300 || seen[index]) continue;
-            memcpy(assembly+index*1200,packet+16,payload);
-            seen[index]=1;
-            if(++received==count) {
+            if(osGetTime()-frameStarted>300 || received==count) continue;
+            if(isRepair) {
+                if(haveRepair) continue;
+                memcpy(repair,packet+16,1200); haveRepair=true;
+            } else {
+                if(seen[index]) continue;
+                memcpy(assembly+index*1200,packet+16,payload);
+                seen[index]=1; ++received;
+            }
+            // Recover exactly one erasure, including the short final fragment.
+            // Works when parity precedes data; never decode an incomplete JPEG.
+            if(haveRepair && received+1==count) {
+                unsigned missing=0;
+                for(unsigned i=0;i<count;++i) {
+                    if(!seen[i]) { missing=i; continue; }
+                    unsigned length=(i+1==count)?size-i*1200:1200;
+                    for(unsigned j=0;j<length;++j) repair[j]^=assembly[i*1200+j];
+                }
+                unsigned length=(missing+1==count)?size-missing*1200:1200;
+                memcpy(assembly+missing*1200,repair,length);
+                seen[missing]=1; ++received;
+                ++panel.recovered;
+            }
+            if(received==count) {
                 lastImage=osGetTime();
                 if(isJpeg) jpeg.submit(assembly,size);
                 else { memcpy(latest,assembly,size); latestSize=size; haveImage=true; newImage=true; ++completed; }

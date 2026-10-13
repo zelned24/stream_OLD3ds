@@ -67,6 +67,8 @@ class ServerWindow:
         self.capture=tk.StringVar(value='Directa · rápida')
         self.visible=tk.BooleanVar(value=True)
         self.audio=tk.BooleanVar(value=False)
+        self.sharp=tk.BooleanVar(value=False)
+        self.fec=tk.BooleanVar(value=False)
         self.load_settings()
         form=ttk.Frame(outer); form.pack(fill='x',pady=18)
         form.columnconfigure(0,weight=1); form.columnconfigure(1,weight=1)
@@ -85,6 +87,10 @@ class ServerWindow:
         check.grid(row=6,column=0,columnspan=2,sticky='w'); self.fields.append(check)
         audio_check=ttk.Checkbutton(form,text='Audio: transmitir salida Windows (incluye otros sonidos de PC)',variable=self.audio)
         audio_check.grid(row=7,column=0,columnspan=2,sticky='w'); self.fields.append(audio_check)
+        for row, label, variable in [(8,'Nitidez: JPEG 4:4:4 sin filtros (puede reducir FPS)',self.sharp),
+                                     (9,'Recuperar un paquete perdido por imagen JPEG',self.fec)]:
+            option=ttk.Checkbutton(form,text=label,variable=variable)
+            option.grid(row=row,column=0,columnspan=2,sticky='w'); self.fields.append(option)
         self.connection=tk.StringVar(value=self.network_hint())
         self.mode.trace_add('write',lambda *_:self.connection.set(self.network_hint()))
         ttk.Label(outer,textvariable=self.connection,style='Muted.TLabel').pack(anchor='w')
@@ -112,7 +118,7 @@ class ServerWindow:
     def load_settings(self):
         try:
             values=json.loads((ROOT/'server-settings.json').read_text(encoding='utf-8'))
-            for key in ('url','mode','fps','quality','capture','visible','audio'):
+            for key in ('url','mode','fps','quality','capture','visible','audio','sharp','fec'):
                 if key in values: getattr(self,key).set(values[key])
         except (OSError,ValueError,tk.TclError): pass
 
@@ -131,7 +137,7 @@ class ServerWindow:
         except OSError:
             messagebox.showerror('Servidor ya abierto','El puerto UDP 5000 está ocupado. Detén el otro servidor antes de iniciar este.'); return
         finally: probe.close()
-        settings={key:getattr(self,key).get() for key in ('url','mode','fps','quality','capture','visible','audio')}
+        settings={key:getattr(self,key).get() for key in ('url','mode','fps','quality','capture','visible','audio','sharp','fec')}
         (ROOT/'server-settings.json').write_text(json.dumps(settings,ensure_ascii=False,indent=2),encoding='utf-8')
         self.stop_path=ROOT/f'.server-stop-{os.getpid()}-{time.time_ns()}'
         python=Path(sys.executable).with_name('python.exe') if os.name=='nt' else Path(sys.executable)
@@ -142,6 +148,8 @@ class ServerWindow:
         if self.visible.get(): command.append('--visible')
         command.extend(['--mode','1' if self.quality.get().startswith('200') else '2' if self.quality.get().startswith('320') else '0'])
         if self.audio.get(): command.append('--audio')
+        if self.sharp.get(): command.append('--sharp')
+        if self.fec.get(): command.append('--fec')
         try:
             self.process=subprocess.Popen(command,cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
                 text=True,encoding='utf-8',errors='replace',env={**os.environ,'PYTHONIOENCODING':'utf-8'},

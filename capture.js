@@ -14,19 +14,30 @@ async (source, half = 0) => new Promise(resolve => requestAnimationFrame(() => {
         };
     }
     const {ctx, target, packed, outImg} = capture;
+    const sharp = !!window.__rogueSharp && half != 1;
     const scale = Math.min(width/source.width, height/source.height);
     const w = Math.round(source.width*scale), h = Math.round(source.height*scale);
     ctx.fillStyle = 'black'; ctx.fillRect(0,0,width,height);
-    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingEnabled = !sharp;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(source, (width-w)>>1, (height-h)>>1, w,h);
+
+    // Transfer uncompressed pixels only across local Playwright, never over Wi-Fi.
+    // Pillow controls JPEG chroma subsampling; canvas.toDataURL cannot specify it.
+    if (sharp && half != 1) {
+        const rgba = ctx.getImageData(0,0,width,height).data;
+        let binary = '';
+        for(let i=0;i<rgba.length;i+=8192)
+            binary += String.fromCharCode(...rgba.subarray(i,i+8192));
+        resolve(btoa(binary)); return;
+    }
 
     // Fast 3x3 unsharp mask restores crisp pixel-art edges lost during 1080p downsampling
     const src = ctx.getImageData(0,0,width,height).data;
     const dst = outImg.data;
     dst.set(src);
     const stride = width * 4;
-    for (let y = 1; y < height - 1; ++y) {
+    for (let y = 1; !sharp && y < height - 1; ++y) {
         let idx = y * stride + 4;
         for (let x = 1; x < width - 1; ++x) {
             for (let c = 0; c < 3; ++c) {

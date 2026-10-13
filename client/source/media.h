@@ -11,7 +11,7 @@ struct JpegWorker {
     std::atomic<bool> running{false};
     bool pending=false, ready=false;
     unsigned size=0, width=0, height=0;
-    u8 input[96000], work[96000], decoded[400*240*3], output[400*240*3];
+    u8 input[96000], work[96000], decoded[400*240*3], rotated[400*240*3], output[400*240*3];
     JpegWorker() { LightLock_Init(&lock); }
     static void entry(void* argument) {
         auto& self=*static_cast<JpegWorker*>(argument);
@@ -27,8 +27,19 @@ struct JpegWorker {
             if(tjDecompressHeader3(decoder,self.work,bytes,&w,&h,&sub,&color)!=0) continue;
             if(!((w==400 && h==240)||(w==320 && h==192))) continue;
             if(tjDecompress2(decoder,self.work,bytes,self.decoded,w,0,h,TJPF_BGR,0)!=0) continue;
+            // Scale/rotate off the main thread; divisions only in lookup creation.
+            unsigned rows[240], columns[400];
+            for(unsigned y=0;y<240;++y) rows[y]=(y*unsigned(h)/240)*unsigned(w)*3;
+            for(unsigned x=0;x<400;++x) columns[x]=(x*unsigned(w)/400)*3;
+            for(unsigned x=0;x<400;++x) {
+                u8* target=self.rotated+x*240*3;
+                for(unsigned y=0;y<240;++y) {
+                    const u8* source=self.decoded+rows[239-y]+columns[x];
+                    *target++=source[0]; *target++=source[1]; *target++=source[2];
+                }
+            }
             LightLock_Lock(&self.lock);
-            memcpy(self.output,self.decoded,w*h*3); self.width=w; self.height=h; self.ready=true;
+            memcpy(self.output,self.rotated,sizeof(self.output)); self.width=w; self.height=h; self.ready=true;
             LightLock_Unlock(&self.lock);
         }
         tjDestroy(decoder);
@@ -41,21 +52,7 @@ struct JpegWorker {
     bool present(u8* fb) {
         if(LightLock_TryLock(&lock)!=0) return false;
         if(!ready) { LightLock_Unlock(&lock); return false; }
-        if(width==400 && height==240) {
-            const u8* src=output;
-            for(unsigned y=0;y<240;++y) {
-                u8* dst=fb+(239-y)*3;
-                for(unsigned x=0;x<400;++x) {
-                    dst[0]=src[0]; dst[1]=src[1]; dst[2]=src[2];
-                    src+=3; dst+=240*3;
-                }
-            }
-        } else {
-            for(unsigned x=0;x<400;++x) for(unsigned y=0;y<240;++y) {
-                unsigned src=((y*height/240)*width+x*width/400)*3, dst=(x*240+239-y)*3;
-                memcpy(fb+dst,output+src,3);
-            }
-        }
+        memcpy(fb,output,sizeof(output));
         ready=false; LightLock_Unlock(&lock); return true;
     }
     void stop() { running=false; if(thread) { threadJoin(thread,UINT64_MAX); threadFree(thread); thread=nullptr; } }

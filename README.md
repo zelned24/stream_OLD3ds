@@ -2,7 +2,34 @@
 
 La PC ejecuta PokéRogue en Edge; la consola recibe video RGB332 o JPEG y envía botones por UDP. Incluye audio opcional de la salida de Windows. La pantalla inferior tiene un panel gráfico con fondo oscuro, marcos rojos y selección visible.
 
+## Medir la capacidad de tu consola
+
+La herramienta independiente **Rogue Probe** mide UDP, JPEG, copia/presentación, controles y coexistencia con audio en la 3DS física. Copia `dist/3ds/rogue_probe/rogue_probe.3dsx` a la SD y conserva `sd:/3ds/rogue_stream/server.txt`. Abre `start-diagnostics.ps1`, pulsa **Iniciar diagnóstico** y abre Probe en la consola con **A**. Usa UDP 5001; permite ese puerto para Python en la red privada. Una pasada tarda aproximadamente 4–5 minutos. B cancela y START sale.
+
+Los resultados se guardan por etapa en `diagnostics-results/` como JSON, CSV y resumen Markdown. No reemplaza el cliente del juego ni aplica automáticamente otro protocolo. Instalación, significado de las métricas, audio opcional y criterios de selección: [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
 ## Actualización: JPEG, modo intermedio y audio
+
+### Prueba de nitidez y recuperación (2026-10-13)
+
+El audio ya funciona al iniciar con `--audio`. Esta revisión añade dos opciones independientes; están desactivadas por defecto para conservar la captura anterior:
+
+- **Nitidez / `--sharp`:** JPEG 4:4:4, calidad 80, sin suavizado ni filtro de enfoque. Puede mejorar bordes de texto y color, pero aumentar tráfico y reducir FPS. `--jpeg-quality 70` permite bajar el peso manteniendo 4:4:4. No es compresión sin pérdida.
+- **Recuperación / `--fec`:** un paquete extra permite reconstruir un fragmento perdido por JPEG. Requiere el `.3dsx` nuevo. En **Red**, `FEC` cuenta imágenes reconstruidas y `Drop` las incompletas descartadas. FEC no hace más nítida una imagen completa.
+
+Copia `dist/3ds/rogue_stream/rogue_stream.3dsx` a `sd:/3ds/rogue_stream/rogue_stream.3dsx`, conservando `server.txt`. Reinicia el cliente y el servidor. En la GUI selecciona **400 × 240**, **15 FPS**, captura **Directa**, audio y la casilla **Nitidez**. Compara primero sin recuperación; después activa la casilla de recuperación si hay descartes.
+
+Por terminal, primera prueba:
+
+```powershell
+python D:\Proyectos\rogue_lan\server.py --url https://pokerogue.net --channel msedge --visible --bind 0.0.0.0 --fps 15 --mode 0 --audio --sharp --jpeg-quality 80
+```
+
+Añade `--fec` para la segunda prueba. Mantén escena y FPS iguales y anota nitidez, FPS recibidos, KB/s, RTT, Drop, FEC y continuidad del sonido. Sin `--sharp` se conserva el filtro y JPEG del navegador anterior. La captura sin filtros no puede recuperar detalle ya perdido en el canvas de origen y puede mostrar aliasing si la reducción no es entera.
+
+Se guardó el binario anterior en `backups/rogue_stream-before-sharp.3dsx`; para volver atrás cópialo a la SD renombrado a `rogue_stream.3dsx` y desactiva ambas opciones. No se modificó el audio ni su buffering.
+
+Compilación ARM y sintaxis Python verificadas. **No se ejecutaron mediciones en PC ni Azahar; nitidez, FPS y recuperación por pérdida real quedan por validar en tu consola.** Comparación de transportes, códecs, fuentes y límites: [STREAMING_RESEARCH.md](STREAMING_RESEARCH.md).
 
 **Actualiza servidor y .3dsx juntos:** esta versión usa ajustes PRC2/PRA2, incompatibles con el cliente anterior.
 
@@ -18,9 +45,9 @@ La PC ejecuta PokéRogue en Edge; la consola recibe video RGB332 o JPEG y envía
 | Equilibrio | 320×192 JPEG | Mayor definición con tráfico comprimido |
 | Detalle | 400×240 JPEG | Resolución completa, con coste de descompresión |
 
-JPEG se produce con calidad 75 y tamaño variable (~19 KB/frame); el navegador aplica un filtro unsharp mask 3×3 de alta velocidad tras el reescalado desde 1080p para restaurar bordes nítidos de texto y pixel-art. El cliente lo descomprime con IDCT preciso en un hilo separado del bucle de botones y red. El límite es 96 KB por JPEG. Solo se mantiene un frame pendiente, reemplazando trabajo antiguo. La resolución seleccionada es mapeada 1:1 a toda la pantalla superior.
+Sin `--sharp`, la captura directa produce JPEG calidad 75 con suavizado y unsharp mask. Con `--sharp`, Pillow produce JPEG 4:4:4 con calidad configurable. El tamaño depende de la escena y el límite es 96000 bytes por JPEG; si lo supera en captura directa, el servidor avisa y descarta. El cliente usa IDCT preciso y prepara la imagen en un worker. Solo se mantiene un frame pendiente. Detalle se presenta 1:1; las otras resoluciones se amplían.
 
-Los FPS seleccionados son el máximo. JPEG empieza hasta 20 FPS; el servidor reduce ante congestión real o caídas persistentes, y recupera rápidamente tras dos reportes estables sin penalizar pérdidas aisladas de radio. Cambiar el objetivo reinicia el ajuste. El contador de la consola incluye imágenes JPEG ya decodificadas y presentadas.
+Los FPS seleccionados son el máximo. JPEG empieza hasta 20 FPS; el servidor reduce según descartes y FPS recibidos, y aumenta un FPS tras dos reportes considerados estables. Es una heurística: no demuestra congestión y puede reaccionar a una caída aislada. Cambiar el objetivo reinicia el ajuste. El contador de la consola incluye imágenes JPEG ya decodificadas y presentadas.
 
 Audio: G.711 mu-law mono, 16 kHz, 320 muestras por paquete PAU1 (20 ms), 128 kbit/s de payload. La 3DS convierte a PCM16 y reproduce con NDSP. Precarga tres buffers (60 ms), mantiene hasta ocho (160 ms), descarta duplicados/paquetes antiguos y limpia tras 350 ms sin recepción. No retransmite audio perdido. No hay sincronización exacta entre audio y video; puede haber cortes o desfase. Pausar el stream detiene también el envío de sonido.
 
@@ -77,7 +104,7 @@ El lanzador `start-server.ps1` usa el Python disponible en PATH; si instalaste d
 Alternativa por terminal:
 
 ```powershell
-python server.py --url https://pokerogue.net --channel msedge --visible --bind 0.0.0.0 --fps 10 --half
+python server.py --url https://pokerogue.net --channel msedge --visible --bind 0.0.0.0 --fps 15 --mode 0 --audio --sharp
 ```
 
 También puedes usar la URL de un checkout local de PokéRogue ya levantado por separado. Este proyecto no incluye el juego. El modo `--capture screenshot` conserva una ruta PNG más lenta por compatibilidad. El servidor usa la LAN sin autenticación ni cifrado; no lo expongas a Internet.
@@ -119,7 +146,7 @@ La captura se genera en el navegador y se entrega a un buzón de un frame en Pyt
 
 UDP usa enteros big-endian y fragmentos de hasta 1200 bytes. PRF2 transporta RGB332; PRJ1 JPEG; PAU1 audio; PRI1 estado de 11 botones; PRC2/PRA2 ajustes y confirmación; PRS1 métricas; PRP1 ping. Fluidez tiene 20 fragmentos; JPEG tiene una cantidad variable y un último fragmento que puede ser menor. Se descartan parciales y secuencias antiguas. Los botones se envían al cambiar y cada 50 ms; el servidor libera teclas tras 500 ms sin entrada. Una pulsación breve puede perderse con UDP.
 
-El cliente usa 1 MiB alineado para SOC, 192 KB para ensamblado e imagen y unos 750 KiB adicionales para buffers JPEG, más memoria interna del decodificador y 64 KiB de pila. La recepción no bloqueante tiene un presupuesto de 256 paquetes o 6 ms por vuelta. El panel se dibuja en RGB565 cuando cambia; el video usa BGR8. No requiere Citro2D ni RomFS.
+El cliente usa 1 MiB alineado para SOC, 192 KB para ensamblado e imagen y unos 1031 KiB adicionales para buffers JPEG, más memoria interna del decodificador y 64 KiB de pila. FEC añade 1200 bytes de paridad. La recepción no bloqueante tiene un presupuesto de 256 paquetes o 10 ms por vuelta. El panel se dibuja en RGB565 cuando cambia; el video usa BGR8. No requiere Citro2D ni RomFS.
 
 ## Verificación
 

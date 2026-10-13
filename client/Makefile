@@ -13,9 +13,16 @@ endif
 LDFLAGS := -specs=3dsx.specs $(ARCH) -L$(DEVKITPRO)/libctru/lib
 LDFLAGS += -L$(DEVKITPRO)/portlibs/3ds/lib
 
-.PHONY: all clean
+.PHONY: all clean probe
 TARGET ?= rogue_stream
 all: $(TARGET).3dsx
+probe: rogue_probe.3dsx
+probe.o: source/probe.cpp source/media.h
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+rogue_probe.elf: probe.o
+	$(CXX) $(LDFLAGS) $< -lturbojpeg -lctru -lm -o $@
+rogue_probe.3dsx: rogue_probe.elf
+	3dsxtool $< $@
 main.o: source/main.cpp source/panel.h source/panel_graphics.h source/media.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 $(TARGET).elf: main.o

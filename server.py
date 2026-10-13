@@ -24,6 +24,23 @@ KEY_TABLE = ['', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
 DEFAULT_MAPPING = (5, 6, 9, 10, 11, 12, 7)  # A B X Y L R Start
 BUTTON_BITS = (4, 5, 7, 8, 9, 10, 6)
 
+def sharp_jpeg(rgba, mode, quality):
+    size = (320, 192) if mode == 2 else (400, 240)
+    if len(rgba) != size[0]*size[1]*4:
+        raise ValueError('Tamano RGBA incorrecto')
+    image = Image.frombytes('RGBA', size, rgba).convert('RGB')
+    output = io.BytesIO()
+    image.save(output, format='JPEG', quality=quality, subsampling=0,
+               progressive=False, optimize=False)
+    return output.getvalue()
+
+def jpeg_parity(frame):
+    # Zero-pad the final fragment. Integer XOR executes in C, not a per-byte loop.
+    parity = 0
+    for offset in range(0, len(frame), CHUNK):
+        parity ^= int.from_bytes(frame[offset:offset+CHUNK], 'little')
+    return parity.to_bytes(CHUNK, 'little')
+
 def keys_for_mask(mask, mapping):
     keys = {KEY_TABLE[i+1] for i in range(4) if mask & (1 << i)}
     keys.update(KEY_TABLE[key] for bit, key in zip(BUTTON_BITS, mapping)
@@ -144,6 +161,9 @@ async def main(args):
         await canvas.wait_for(state='visible')
         await canvas.click()
         print(f'Juego listo: {args.url}; UDP {args.bind}:{args.port}', flush=True)
+        print(f'Video: nitido 4:4:4={args.sharp}, calidad={args.jpeg_quality if args.sharp else 75}, FEC={args.fec}', flush=True)
+        dimensions = await canvas.evaluate('(c) => ({width:c.width,height:c.height})')
+        print(f'Canvas origen: {dimensions["width"]}x{dimensions["height"]}', flush=True)
 
         async def keyboard():
             held = set()
@@ -168,9 +188,18 @@ async def main(args):
             from audio_stream import stream_audio
             audio_task = asyncio.create_task(stream_audio(video,state,audio_stop))
         mailbox = asyncio.Queue(maxsize=1)
+        last_oversize = -float('inf')
         async def receive_frame(encoded, half, duration):
+            nonlocal last_oversize
             if encoded and state.capture_settings()['active']:
                 frame = base64.b64decode(encoded)
+                if args.sharp and half in (0, 2):
+                    encode_start = loop.time()
+                    frame = await asyncio.to_thread(sharp_jpeg, frame, half, args.jpeg_quality)
+                    duration += (loop.time()-encode_start)*1000
+                if half in (0,2) and len(frame)>96000 and loop.time()-last_oversize>5:
+                    print('JPEG supera 96000 bytes: reduce --jpeg-quality con --sharp.',flush=True)
+                    last_oversize=loop.time()
                 if (half == 1 and len(frame) == 24000) or (half in (0,2) and 4 <= len(frame) <= 96000 and frame[:2] == b"\xff\xd8"):
                     if mailbox.full():
                         mailbox.get_nowait()
@@ -178,6 +207,7 @@ async def main(args):
             return state.capture_settings()
         if args.capture == 'canvas':
             await page.expose_function('__rogueFrame', receive_frame)
+            await page.evaluate('(sharp) => { window.__rogueSharp = sharp; }', args.sharp)
             await page.evaluate('() => { window.__rogueCapture = ('+CAPTURE+'); }')
             await page.evaluate(PUSH, dict(selector=args.canvas, initial=state.capture_settings()))
         seq = 0
@@ -204,9 +234,11 @@ async def main(args):
                         else:
                             def jpeg():
                                 size = (320,192) if mode == 2 else (400,240)
-                                im = ImageOps.pad(Image.open(io.BytesIO(png)).convert('RGB'), size)
+                                im = ImageOps.pad(Image.open(io.BytesIO(png)).convert('RGB'), size,
+                                    method=Image.Resampling.NEAREST if args.sharp else Image.Resampling.BICUBIC)
                                 output = io.BytesIO()
-                                im.save(output,format='JPEG',quality=50,progressive=False)
+                                im.save(output,format='JPEG',quality=args.jpeg_quality if args.sharp else 50,
+                                        subsampling=0 if args.sharp else 2,progressive=False)
                                 return output.getvalue()
                             frame = await asyncio.to_thread(jpeg)
                         duration = (loop.time()-capture_start)*1000
@@ -230,6 +262,11 @@ async def main(args):
                             else:
                                 deadline = start + (index+1)/(state.effective_fps*count)
                                 await asyncio.sleep(max(0, deadline-loop.time()))
+                    else:
+                        if args.fec and mode != 1:
+                            repair = FRAME.pack(b'PRX1',seq,0,count,len(frame))+jpeg_parity(frame)
+                            try: video.sendto(repair,peer)
+                            except (BlockingIOError,OSError): pass
                     if loop.time()-report > 5:
                         elapsed = loop.time()-report
                         detail = 'RX pendiente'
@@ -270,6 +307,9 @@ if __name__ == '__main__':
     parser.add_argument('--half', action='store_true')
     parser.add_argument('--mode', type=int, choices=[0,1,2], default=0)
     parser.add_argument('--audio', action='store_true')
+    parser.add_argument('--sharp', action='store_true', help='Sin filtros; JPEG 4:4:4 codificado en PC')
+    parser.add_argument('--jpeg-quality', type=int, choices=range(30,96), default=80, metavar='30..95')
+    parser.add_argument('--fec', action='store_true', help='Un paquete XOR de recuperacion por JPEG')
     parser.add_argument('--stop-file')
     args = parser.parse_args()
     if not 1 <= args.fps <= 60:
