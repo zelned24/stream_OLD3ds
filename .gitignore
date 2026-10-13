@@ -1,0 +1,12 @@
+__pycache__/
+.venv/
+.browser-profile/
+*.log
+server-settings.json
+.server-stop-*
+client/*.o
+client/*.elf
+client/*.3dsx
+backup_pre_audio_fps_fix/
+capture-check.png
+last-frame.png

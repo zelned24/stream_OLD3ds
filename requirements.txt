@@ -1,0 +1,6 @@
+playwright>=1.40,<2
+Pillow>=10,<13
+
+PyAudioWPatch>=0.2.12.6; sys_platform == "win32"
+numpy>=1.26,<3
+audioop-lts>=0.2; python_version >= "3.13"
